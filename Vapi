@@ -1,7 +1,15 @@
 local Vapi = {}
 
 function Vapi.execute(code)
-    loadstring(code)()
+    assert(type(code) == "string",
+        "Vapi.execute expected a string, got " .. type(code))
+
+    local fn, err = loadstring(code)
+    if not fn then
+        error(err, 2)
+    end
+
+    return fn()
 end
 
 return Vapi
