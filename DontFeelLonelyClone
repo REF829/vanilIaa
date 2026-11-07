@@ -1,0 +1,157 @@
+-- LocalScript inside StarterPlayer > StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+-- Positive X = right side; negative X = left side.
+local OFFSET = Vector3.new(-5, 0, 3)
+
+local clone
+local syncConnection
+local generation = 0
+
+local BUDDY_NAME = player.Name .. "_Buddy"
+
+local function cleanup()
+	if syncConnection then
+		syncConnection:Disconnect()
+		syncConnection = nil
+	end
+
+	if clone then
+		clone:Destroy()
+		clone = nil
+	end
+
+	-- Remove ALL leftover buddies, including ones
+	-- that are no longer stored in the clone variable.
+	for _, object in workspace:GetChildren() do
+		if object:IsA("Model") and object.Name == BUDDY_NAME then
+			object:Destroy()
+		end
+	end
+end
+
+local function setupCharacter(character)
+	generation += 1
+	local thisGeneration = generation
+	cleanup()
+
+	local root = character:WaitForChild("HumanoidRootPart", 10)
+	if not root then
+		return
+	end
+
+	-- Wait for clothing and accessories to finish loading.
+	while player.Character == character
+		and not player:HasAppearanceLoaded() do
+		task.wait(0.1)
+
+		if generation ~= thisGeneration then
+			return
+		end
+	end
+
+	if generation ~= thisGeneration
+		or player.Character ~= character
+		or not character.Parent then
+		return
+	end
+
+	cleanup()
+
+    local wasArchivable = character.Archivable
+    character.Archivable = true
+    local buddy = character:Clone()
+    character.Archivable = wasArchivable
+
+	if not buddy then
+		return
+	end
+
+	buddy.Name = player.Name .. "_Buddy"
+
+	-- Match each original part with its cloned counterpart.
+	local partPairs = {}
+
+	local function matchParts(original, copy)
+		if original:IsA("BasePart") and copy:IsA("BasePart") then
+			table.insert(partPairs, {
+				source = original,
+				target = copy,
+			})
+		end
+
+		for _, child in original:GetChildren() do
+			local copiedChild = copy:FindFirstChild(child.Name)
+			if copiedChild then
+				matchParts(child, copiedChild)
+			end
+		end
+	end
+
+	matchParts(character, buddy)
+
+	-- The buddy is a visual copy, not a second physics character.
+	for _, object in buddy:GetDescendants() do
+		if object:IsA("BaseScript")
+			or object:IsA("ModuleScript")
+			or object:IsA("JointInstance")
+			or object:IsA("Constraint")
+			or object:IsA("Animator") then
+
+			object:Destroy()
+
+		elseif object:IsA("BasePart") then
+			object.Anchored = true
+			object.CanCollide = false
+			object.CanTouch = false
+			object.CanQuery = false
+			object.LocalTransparencyModifier = 0
+		end
+	end
+
+	local humanoid = buddy:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType =
+			Enum.HumanoidDisplayDistanceType.None
+	end
+
+	local function syncPose()
+		-- Keep the buddy beside you relative to your facing direction.
+		local worldOffset = root.CFrame:VectorToWorldSpace(OFFSET)
+
+		for _, pair in partPairs do
+			if pair.source.Parent and pair.target.Parent then
+				pair.target.CFrame = pair.source.CFrame + worldOffset
+			end
+		end
+	end
+
+	syncPose()
+	buddy.Parent = workspace
+	clone = buddy
+
+	syncConnection = RunService.RenderStepped:Connect(function()
+		if player.Character ~= character or not character.Parent then
+			cleanup()
+			return
+		end
+
+		syncPose()
+	end)
+end
+
+player.CharacterAdded:Connect(setupCharacter)
+player.CharacterAdded:Connect(cleanup)
+
+player.CharacterRemoving:Connect(function()
+	generation += 1
+	cleanup()
+end)
+
+if player.Character then
+	task.spawn(setupCharacter, player.Character)
+end
