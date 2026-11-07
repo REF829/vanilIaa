@@ -1,0 +1,7 @@
+local Vapi = {}
+
+function Vapi.execute(code)
+    loadstring(code)()
+end
+
+return Vapi
